@@ -13,4 +13,4 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::any('/', App\Http\Livewire\Pages\Index::class);
+Route::get('/', App\Http\Livewire\Pages\Index::class);
