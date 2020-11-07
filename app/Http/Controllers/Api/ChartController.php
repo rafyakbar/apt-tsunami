@@ -14,153 +14,154 @@ class ChartController extends Controller
 {
     public static function data()
     {
+        $resp = Http::get(env('DATA_URL', 'http://grafik.prediksi-tsunami.unesa.ac.id/data/plotsum.az-tdur.txt'));
+        $data = ($resp->status() == '200')
+            ? $resp->body()
+            : self::$txt;
 
+        $lines = preg_split('/\r\n|\r|\n/', $data);
+
+        $data = [];
+        foreach (preg_split('/\r\n|\r|\n/', self::$test) as $line) {
+            $line = explode("\t", $line);
+            $data[] = [
+                'stat' => $line[2],
+                'net' => '-',
+                'date' => '-',
+                'time' => '-',
+                'dist' => '-',
+                'az' => (float)(str_replace(',', '.', $line[0])),
+                'tdur' => (float)(str_replace(',', '.', $line[1]))
+            ];
+        }
+
+        collect($lines)->each(function ($line) use (&$data) {
+            $line = str_replace('  ', ' ', $line);
+            $line = str_replace(' Stat', 'Stat', $line);
+
+            $columStr = 'Stat Net Date Time Dist Az Tdur';
+
+            if (!Str::contains($line, $columStr)) {
+                $fields = explode(' ', $line);
+
+                if (count($fields) > 6) {
+                    $d = collect(explode(' ', $columStr))
+                        ->mapWithKeys(function ($val, $key) use ($fields) {
+                            $d = !in_array($val, ['Az', 'Tdur'])
+                                ? $fields[$key]
+                                : (float)$fields[$key];
+
+                            return [strtolower($val) => $d];
+                        })->toArray();
+
+                    $data[] = $d;
+                }
+            }
+        });
+
+        $data = collect($data)
+            ->groupBy('date')
+            ->map(function ($data) {
+                $c = 0;
+
+                return $data->sortByDesc('time')
+                    ->mapWithKeys(function ($d) use (&$c) {
+                        return [$c++ => $d];
+                    });
+            })->sortByDesc(function ($val, $key) {
+                return $key;
+            });
+
+        return $data;
     }
 
     public function tdurAzamuth()
     {
-        $data = $this->txt;
-        $resp = Http::get(env('DATA_URL', 'http://grafik.prediksi-tsunami.unesa.ac.id/data/plotsum.az-tdur.txt'));
-        $data = ($resp->status() == '200')
-            ? $resp->body()
-            : null;
+        $data = self::data();
 
-        if (!empty($data)) {
-            $lines = preg_split('/\r\n|\r|\n/', $data);
+        // Storage::disk('public')->put('data.json', json_encode($data));
 
-            $data = [];
-            foreach (preg_split('/\r\n|\r|\n/', $this->test) as $line) {
-                $line = explode("\t", $line);
-                $data[] = [
-                    'stat' => $line[2],
-                    'net' => '-',
-                    'date' => '-',
-                    'time' => '-',
-                    'dist' => '-',
-                    'az' => (float)(str_replace(',', '.', $line[0])),
-                    'tdur' => (float)(str_replace(',', '.', $line[1]))
-                ];
-            }
+        $linearCurveFit = false;
 
-            collect($lines)->each(function ($line) use (&$data) {
-                $line = str_replace('  ', ' ', $line);
-                $line = str_replace(' Stat', 'Stat', $line);
+        $x = [];
+        $y = [];
 
-                $columStr = 'Stat Net Date Time Dist Az Tdur';
-
-                if (!Str::contains($line, $columStr)) {
-                    $fields = explode(' ', $line);
-
-                    if (count($fields) > 6) {
-                        $d = collect(explode(' ', $columStr))
-                            ->mapWithKeys(function ($val, $key) use ($fields) {
-                                $d = !in_array($val, ['Az', 'Tdur'])
-                                    ? $fields[$key]
-                                    : (float)$fields[$key];
-
-                                return [strtolower($val) => $d];
-                            })->toArray();
-
-                        $data[] = $d;
-                    }
+        $data = $data->get((empty(request()->date) ? $data->keys()[0] : request()->date))
+            ->map(function ($data) use (&$x, &$y, $linearCurveFit) {
+                if ($linearCurveFit) {
+                    $x[] = [$data['az']];
+                    $y[] = $data['tdur'];
+                } else {
+                    $x[] = $data['az'];
+                    $y[] = $data['tdur'];
                 }
+
+                return [
+                    'x' => $data['az'],
+                    'y' => $data['tdur'],
+                    'r' => 2
+                ];
             });
 
-            $linearCurveFit = false;
+        $rSquaredData = [];
 
-            $x = [];
-            $y = [];
-
-            $data = collect($data)
-                ->groupBy('date')
-                ->map(function ($data) {
-                    $c = 0;
-
-                    return $data->sortByDesc('time')
-                        ->mapWithKeys(function ($d) use (&$c) {
-                            return [$c++ => $d];
-                        });
-                })->sortByDesc(function ($val, $key) {
-                    return $key;
-                });
-
-//            Storage::disk('public')->put('data.json', json_encode($data));
-
-            $data = $data->get((empty(request()->date) ? $data->keys()[0] : request()->date))
-                ->map(function ($data) use (&$x, &$y, $linearCurveFit) {
-                    if ($linearCurveFit) {
-                        $x[] = [$data['az']];
-                        $y[] = $data['tdur'];
-                    } else {
-                        $x[] = $data['az'];
-                        $y[] = $data['tdur'];
-                    }
-
-                    return [
-                        'x' => $data['az'],
-                        'y' => $data['tdur'],
-                        'r' => 2
-                    ];
-                });
-
-            if ($linearCurveFit) {
-                $regression = new LeastSquares();
-                $regression->train($x, $y);
-            } else {
-                bcscale( 10 );
-                $polynomial = new PolynomialRegression(5);
-                foreach ($x as $key => $_x){
-                    $polynomial->addData($x[$key], $y[$key]);
-                }
-                $coefficients = $polynomial->getCoefficients();
+        if ($linearCurveFit) {
+            $regression = new LeastSquares();
+            $regression->train($x, $y);
+        } else {
+            bcscale(10);
+            $polynomial = new PolynomialRegression(5);
+            foreach ($x as $key => $_x) {
+                $polynomial->addData($x[$key], $y[$key]);
+                $rSquaredData[] = [$x[$key], $y[$key]];
             }
-
-            $_ = [];
-            $minX = (int)$data->min('x');
-            $maxX = (int)$data->max('x');
-            $step = (($maxX - $minX) / 1000) * 5;
-            for ($c = $minX; $c < $maxX; $c += $step) {
-                if ($linearCurveFit) {
-                    $_[] = [
-                        'x' => $c,
-                        'y' => $regression->predict([$c])
-                    ];
-                } else {
-                    $y = 0;
-                    foreach ($coefficients as $power => $coefficient){
-                        $y += (($power == 0)
-                            ? $coefficient
-                            : (pow($c, $power) * $coefficient));
-                    }
-
-                    $_[] = [
-                        'x' => $c,
-                        'y' => $y
-                    ];
-                }
-            }
-
-            $chart = new TdurAzimuth();
-            $chart->dataset('Trend', 'line', $_)
-                ->options([
-                    'fill' => false,
-                    'backgroundColor' => 'blue',
-                    'borderColor' => 'blue',
-                    'pointRadius' => 0.5,
-                    'borderWidth' => 1
-                ]);
-            $chart->dataset('Data', 'bubble', $data)
-                ->options([
-                    'backgroundColor' => '#000000'
-                ]);
-
-            return $chart->api();
+            $coefficients = $polynomial->getCoefficients();
         }
 
-        return [];
+        $_ = [];
+        $minX = (int)$data->min('x');
+        $maxX = (int)$data->max('x');
+        $step = (($maxX - $minX) / 1000) * 5;
+        for ($c = $minX; $c < $maxX; $c += $step) {
+            if ($linearCurveFit) {
+                $_[] = [
+                    'x' => $c,
+                    'y' => $regression->predict([$c])
+                ];
+            } else {
+                $y = 0;
+                foreach ($coefficients as $power => $coefficient) {
+                    $y += (($power == 0)
+                        ? $coefficient
+                        : (pow($c, $power) * $coefficient));
+                }
+
+                $_[] = [
+                    'x' => $c,
+                    'y' => $y
+                ];
+            }
+        }
+
+        $chart = new TdurAzimuth();
+        $chart->dataset('Trend', 'line', $_)
+            ->options([
+                'fill' => false,
+                'backgroundColor' => 'blue',
+                'borderColor' => 'blue',
+                'pointRadius' => 0.5,
+                'borderWidth' => 1
+            ]);
+        $chart->dataset('Data', 'bubble', $data)
+            ->options([
+                'backgroundColor' => '#000000'
+            ]);
+        $chart->dataset('R-squared = '.number_format($polynomial->RSquared($rSquaredData, $coefficients), 4), '', []);
+
+        return $chart->api();
     }
 
-    public $test = '1,82	95,97	TPUB
+    public static $test = '1,82	95,97	TPUB
 2,23	32,27	SSE
 40,21	91,28	SSLB
 3,32	59,27	YHNB
@@ -217,7 +218,7 @@ class ChartController extends Controller
 350,84	79,01	WHN
 356,83	79,99	KMNB';
 
-    public $txt = ' Stat  Net Date  Time Dist  Az Tdur untuk evid 20200906213434
+    public static $txt = ' Stat  Net Date  Time Dist  Az Tdur untuk evid 20200906213434
 ARPR GE 20/09/06 21:37:43.2 13.1 282 48.67956
 CSS GE 20/09/06 21:38:40.3 17.6 268 39.799343
 TIRR GE 20/09/06 21:39:15.7 21.1 297 24.84
