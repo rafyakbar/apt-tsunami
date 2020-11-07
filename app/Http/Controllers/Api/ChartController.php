@@ -12,6 +12,11 @@ use Phpml\Regression\LeastSquares;
 
 class ChartController extends Controller
 {
+    public static function data()
+    {
+
+    }
+
     public function tdurAzamuth()
     {
         $data = $this->txt;
