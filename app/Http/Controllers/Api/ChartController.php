@@ -15,7 +15,7 @@ class ChartController extends Controller
     public function tdurAzamuth()
     {
         $data = $this->txt;
-        $resp = Http::get(env('DATA_URL'));
+        $resp = Http::get(env('DATA_URL', 'http://grafik.prediksi-tsunami.unesa.ac.id/data/plotsum.az-tdur.txt'));
         $data = ($resp->status() == '200')
             ? $resp->body()
             : null;
