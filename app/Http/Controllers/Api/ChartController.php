@@ -84,7 +84,7 @@ class ChartController extends Controller
                     return $key;
                 });
 
-            Storage::disk('public')->put('data.json', json_encode($data));
+//            Storage::disk('public')->put('data.json', json_encode($data));
 
             $data = $data->get((empty(request()->date) ? $data->keys()[0] : request()->date))
                 ->map(function ($data) use (&$x, &$y, $linearCurveFit) {
