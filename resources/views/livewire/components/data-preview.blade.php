@@ -6,6 +6,11 @@
         <table class="table" wire:loading.remove>
             <thead>
             <tr>
+                <th colspan="{{ count($keys) + 1 }}" class="text-center">
+                    <h5>Terdapat {{ $data->count() }} data pada tanggal {{ $date }}</h5>
+                </th>
+            </tr>
+            <tr>
                 <th>No</th>
                 @foreach($keys as $k)
                     <th>{{ ucwords($k) }}</th>
